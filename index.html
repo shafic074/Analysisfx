@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>SMC Multi-Timeframe Analyzer Pro</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0e1117; color: #d1d4dc; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    background: #161b22; padding: 8px 12px; display: flex; flex-wrap: wrap;
+    gap: 8px; align-items: center; border-bottom: 1px solid #21262d;
+  }
+  header h1 { font-size: 13px; font-weight: 600; margin-right: auto; color: #58a6ff; }
+  select, button, input {
+    background: #21262d; color: #d1d4dc; border: 1px solid #30363d;
+    padding: 6px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; outline: none;
+  }
+  input { width: 110px; }
+  button:hover { background: #30363d; }
+  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button.primary:hover { background: #388bfd; }
+  .warning-banner {
+    background: #4a1515; color: #ffa198; font-size: 11px; padding: 6px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  main { flex: 1; position: relative; display: flex; flex-direction: column; }
+  #chart-container { flex: 1; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #info {
+    position: absolute; top: 10px; right: 10px; background: rgba(22,27,34,0.95);
+    border: 1px solid #30363d; border-radius: 8px; padding: 10px;
+    font-size: 11px; line-height: 1.5; min-width: 220px; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  #info h3 { font-size: 12px; color: #58a6ff; margin-bottom: 4px; border-bottom: 1px solid #30363d; padding-bottom: 3px; }
+  #info b { color: #e6edf3; }
+  .badge { padding: 2px 5px; border-radius: 4px; font-weight: 600; font-size: 10px; }
+  .badge.bull { background: rgba(38,166,154,0.2); color: #3fb950; }
+  .badge.bear { background: rgba(239,83,80,0.2); color: #f85149; }
+  .badge.neutral { background: rgba(139,148,158,0.2); color: #8b949e; }
+  .badge.premium { background: rgba(239,83,80,0.2); color: #f85149; }
+  .badge.discount { background: rgba(38,166,154,0.2); color: #3fb950; }
+  .signal-box { margin-top: 8px; padding: 6px; border-radius: 4px; text-align: center; font-weight: bold; }
+  .signal-box.buy { background: rgba(38,166,154,0.2); color: #3fb950; border: 1px solid #3fb950; }
+  .signal-box.sell { background: rgba(239,83,80,0.2); color: #f85149; border: 1px solid #f85149; }
+  .signal-box.none { background: rgba(139,148,158,0.1); color: #8b949e; border: 1px solid #30363d; }
+  .log-box {
+    background: #0e1117; border-top: 1px solid #21262d; padding: 6px 12px;
+    font-size: 10px; font-family: monospace; color: #8b949e; height: 60px; overflow-y: auto;
+  }
+  .log-box div { border-bottom: 1px solid #161b22; padding: 2px 0; }
+  .log-box .buy { color: #3fb950; }
+  .log-box .sell { color: #f85149; }
+  footer {
+    background: #161b22; border-top: 1px solid #21262d; padding: 4px 12px;
+    font-size: 10px; color: #8b949e; display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .legend { display: flex; align-items: center; gap: 4px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .swatch.demand { background: rgba(38,166,154,0.5); border: 1px solid #26a69a; }
+  .swatch.supply { background: rgba(239,83,80,0.5); border: 1px solid #ef5350; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 SMC Analyzer Pro</h1>
+  <select id="symbol">
+    <option value="R_10">Vol 10</option>
+    <option value="R_25">Vol 25</option>
+    <option value="R_50">Vol 50</option>
+    <option value="R_75" selected>Vol 75</option>
+    <option value="R_100">Vol 100</option>
+    <option value="1HZ10V">Vol 10 (1s)</option>
+    <option value="1HZ25V">Vol 25 (1s)</option>
+    <option value="1HZ75V">Vol 75 (1s)</option>
+  </select>
+  <input type="text" id="appId" placeholder="App ID" value="34DkpgFzJ78ZT7EQzZbgP">
+  <button id="refresh" class="primary">Reload</button>
+  <span id="status">Connecting…</span>
+</header>
+
+<div class="warning-banner" id="warningBanner">
+  ⚠️ <span>If stuck on "Connecting", your code editor's webview is blocking WebSockets. Open this file in Chrome/Firefox or host it on GitHub Pages.</span>
+  <button onclick="document.getElementById('warningBanner').style.display='none'" style="padding:2px 6px; font-size:10px;">✕</button>
+</div>
+
+<main>
+  <div id="chart-container">
+    <canvas id="chart"></canvas>
+    <div id="info">
+      <h3>Analysis Dashboard</h3>
+      <div>D1 Momentum: <span id="d1Trend" class="badge neutral">—</span></div>
+      <div>H4 Structure: <span id="h4Struct" class="badge neutral">—</span></div>
+      <div>Range Position: <span id="rangePos" class="badge neutral">—</span></div>
+      <div>Live Price: <b><span id="livePrice">—</span></b></div>
+      
+      <div class="signal-box none" id="signalBox">NO ACTIVE SIGNAL</div>
+      
+      <div id="tradeParams" style="display:none; margin-top:6px; font-size:10px; color:#8b949e;">
+        Entry: <b id="tpEntry">—</b> | SL: <b id="tpSL">—</b> | TP: <b id="tpTP">—</b>
+      </div>
+
+      <div style="margin-top:6px; font-size:10px; color:#8b949e;" id="refinementNote">
+        Waiting for price to enter zone...
+      </div>
+      <div style="margin-top:4px; font-size:9px; color:#484f58;" id="debugInfo">
+        D1:0 H4:0 H2:0 M30:0
+      </div>
+    </div>
+  </div>
+  
+  <div class="log-box" id="signalLog">
+    <div>System initialized. Waiting for data...</div>
+  </div>
+</main>
+
+<footer>
+  <div class="legend"><div class="swatch demand"></div> Demand</div>
+  <div class="legend"><div class="swatch supply"></div> Supply</div>
+  <div>⚠️ Educational tool. High risk. Not financial advice.</div>
+</footer>
+
+<script>
+// ================= CONFIGURATION =================
+const TF = { D1: 86400, H4: 14400, H2: 7200, M30: 1800 };
+let currentSymbol = 'R_75';
+let appId = '34DkpgFzJ78ZT7EQzZbgP'; 
+let ws = null;
+let reconnectTimer = null;
+let connectionTimeout = null;
+let data = { D1: [], H4: [], H2: [], M30: [] };
+let livePrice = 0;
+let activeSignal = null;
+let signalHistory = [];
+
+const $ = id => document.getElementById(id);
+
+function setStatus(text, cls) {
+  const el = $('status');
+  el.textContent = text;
+  el.className = cls || '';
+  console.log("Status:", text); 
+}
+
+// ================= WEBSOCKET MANAGEMENT =================
+function connect() {
+  clearTimeout(reconnectTimer);
+  clearTimeout(connectionTimeout);
+  setStatus('Connecting…', '');
+  
+  if (ws) {
+    ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null;
+    try { ws.close(); } catch(e) {}
+  }
+  
+  const url = `wss://ws.derivws.com/websockets/v3?app_id=${appId}`;
+  console.log("Attempting connection to:", url);
+  ws = new WebSocket(url);
+
+  connectionTimeout = setTimeout(() => {
+    if (ws.readyState !== WebSocket.OPEN) {
+      setStatus('❌ Connection Timeout.', 'err');
+      logSignal('Connection timed out. Your browser/webview is blocking WebSockets.', 'sell');
+      try { ws.close(); } catch(e) {}
+    }
+  }, 10000);
+
+  ws.onopen = () => {
+    clearTimeout(connectionTimeout);
+    setStatus('✅ Live Data Connected', 'live');
+    logSignal('Connected to Deriv API successfully.', 'buy');
+    ws.send(JSON.stringify({ forget_all: 'candles' }));
+    ws.send(JSON.stringify({ forget_all: 'ticks' }));
+    fetchAllTimeframes();
+  };
+
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.error) {
+        setStatus('❌ API Error: ' + msg.error.message, 'err');
+        logSignal('API Error: ' + msg.error.message, 'sell');
+        return;
+      }
+
+      if (msg.msg_type === 'candles') {
+        const tf = msg.echo_req.granularity;
+        const key = Object.keys(TF).find(k => TF[k] === tf);
+        if (key && msg.candles) {
+          data[key] = msg.candles.map(c => ({
+            t: +c.epoch, o: +c.open, h: +c.high, l: +c.low, c: +c.close
+          }));
+          updateDebug();
+          analyze();
+        }
+      } else if (msg.msg_type === 'tick') {
+        livePrice = +msg.tick.quote;
+        $('livePrice').textContent = livePrice.toFixed(4);
+        if (activeSignal) analyze(); 
+      }
+    } catch (err) {
+      console.error("Message parsing error:", err);
+    }
+  };
+
+  ws.onclose = (event) => {
+    clearTimeout(connectionTimeout);
+    console.log("WebSocket closed. Code:", event.code, "Reason:", event.reason);
+    if (event.code === 1006) {
+      setStatus('❌ Connection blocked (Error 1006).', 'err');
+      logSignal('Connection blocked. Open file in Chrome/Firefox or host it online.', 'sell');
+    } else {
+      setStatus('Reconnecting…', 'err');
+      reconnectTimer = setTimeout(connect, 3000);
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error("WebSocket Error:", err);
+    setStatus('❌ Network Error. Check internet connection.', 'err');
+  };
+}
+
+function fetchAllTimeframes() {
+  if (!ws || ws.readyState !== 1) return;
+  const tfs = Object.entries(TF);
+  tfs.forEach(([key, tf], index) => {
+    setTimeout(() => {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          ticks_history: currentSymbol,
+          adjust_start_time: 1,
+          count: 300,
+          end: 'latest',
+          style: 'candles',
+          granularity: tf
+        }));
+      }
+    }, index * 400);
+  });
+
+  setTimeout(() => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ ticks: currentSymbol, subscribe: 1 }));
+    }
+  }, 2000);
+}
+
+function updateDebug() {
+  $('debugInfo').textContent = `D1:${data.D1.length} H4:${data.H4.length} H2:${data.H2.length} M30:${data.M30.length}`;
+}
+
+// ================= SMC ANALYSIS LOGIC =================
+function analyze() {
+  if (data.D1.length < 50 || data.H4.length < 50 || data.H2.length < 30 || data.M30.length < 30) return;
+  if (livePrice === 0) return;
+
+  // 1. D1 Momentum (EMA 50)
+  const d1Closes = data.D1.map(c => c.c);
+  const d1Ema50 = calculateEMA(d1Closes, 50);
+  const d1Last = d1Closes[d1Closes.length - 1];
+  const d1Bias = d1Last > d1Ema50 ? 'BULL' : 'BEAR';
+
+  // 2. H4 Structure (Swings)
+  const h4Swings = findSwings(data.H4, 5);
+  let h4Trend = 'NEUTRAL';
+  if (h4Swings.highs.length >= 2 && h4Swings.lows.length >= 2) {
+    const lastHigh = h4Swings.highs[h4Swings.highs.length - 1].price;
+    const prevHigh = h4Swings.highs[h4Swings.highs.length - 2].price;
+    const lastLow = h4Swings.lows[h4Swings.lows.length - 1].price;
+    const prevLow = h4Swings.lows[h4Swings.lows.length - 2].price;
+    if (lastHigh > prevHigh && lastLow > prevLow) h4Trend = 'BULL';
+    else if (lastHigh < prevHigh && lastLow < prevLow) h4Trend = 'BEAR';
+  }
+
+  // 3. Range & Premium/Discount
+  let rangePos = 'NEUTRAL';
+  let eqLevel = 0;
+  if (h4Swings.highs.length > 0 && h4Swings.lows.length > 0) {
+    const recentHigh = h4Swings.highs[h4Swings.highs.length - 1].price;
+    const recentLow = h4Swings.lows[h4Swings.lows.length - 1].price;
+    eqLevel = (recentHigh + recentLow) / 2;
+  } else {
+    const h4Recent = data.H4.slice(-50);
+    const h4High = Math.max(...h4Recent.map(c => c.h));
+    const h4Low = Math.min(...h4Recent.map(c => c.l));
+    eqLevel = (h4High + h4Low) / 2;
+  }
+
+  if (livePrice > eqLevel) rangePos = 'PREMIUM';
+  else rangePos = 'DISCOUNT';
+
+  // 4. Find H2 Order Blocks (Zones)
+  const h2Zones = findOrderBlocks(data.H2, h4Trend, rangePos, eqLevel);
+
+  // 5. 30m Refinement & Trade Setup
+  let refinementNote = "Waiting for price to enter zone...";
+  let newSignal = null;
+  
+  if (!activeSignal) {
+    const activeZone = h2Zones.find(z => livePrice <= z.top && livePrice >= z.bottom);
+    if (activeZone) {
+      const m30Confirm = checkM30Confirmation(data.M30, activeZone.type, activeZone.top, activeZone.bottom);
+      if (m30Confirm) {
+        newSignal = {
+          type: activeZone.type,
+          entry: livePrice,
+          sl: activeZone.type === 'demand' ? activeZone.bottom - (activeZone.top - activeZone.bottom) * 0.1 : activeZone.top + (activeZone.top - activeZone.bottom) * 0.1,
+          tp: activeZone.type === 'demand' ? livePrice + (livePrice - (activeZone.bottom - (activeZone.top - activeZone.bottom) * 0.1)) * 2 : livePrice - ((activeZone.top + (activeZone.top - activeZone.bottom) * 0.1) - livePrice) * 2,
+          time: new Date().toLocaleTimeString()
+        };
+        activeSignal = newSignal;
+        triggerAlert(newSignal.type);
+        logSignal(`${newSignal.type.toUpperCase()} Signal @ ${newSignal.entry.toFixed(4)}`, newSignal.type);
+      } else {
+        refinementNote = "⏳ Price in zone. Waiting for 30m confirmation...";
+      }
+    }
+  } else {
+    if (activeSignal.type === 'demand' && livePrice < activeSignal.sl) {
+      logSignal(`Demand Signal Hit SL @ ${livePrice.toFixed(4)}`, 'sell');
+      activeSignal = null;
+    } else if (activeSignal.type === 'supply' && livePrice > activeSignal.sl) {
+      logSignal(`Supply Signal Hit SL @ ${livePrice.toFixed(4)}`, 'sell');
+      activeSignal = null;
+    } else {
+      refinementNote = `Active ${activeSignal.type.toUpperCase()} trade in progress...`;
+    }
+  }
+
+  // Update Dashboard
+  $('d1Trend').textContent = d1Bias === 'BULL' ? 'BULLISH' : 'BEARISH';
+  $('d1Trend').className = 'badge ' + (d1Bias === 'BULL' ? 'bull' : 'bear');
+  
+  $('h4Struct').textContent = h4Trend;
+  $('h4Struct').className = 'badge ' + (h4Trend === 'BULL' ? 'bull' : h4Trend === 'BEAR' ? 'bear' : 'neutral');
+  
+  $('rangePos').textContent = rangePos;
+  $('rangePos').className = 'badge ' + (rangePos === 'PREMIUM' ? 'premium' : rangePos === 'DISCOUNT' ? 'discount' : 'neutral');
+  
+  $('refinementNote').textContent = refinementNote;
+
+  const sBox = $('signalBox');
+  if (activeSignal) {
+    sBox.textContent = activeSignal.type === 'demand' ? '🟢 BUY SETUP ACTIVE' : '🔴 SELL SETUP ACTIVE';
+    sBox.className = 'signal-box ' + (activeSignal.type === 'demand' ? 'buy' : 'sell');
+    $('tradeParams').style.display = 'block';
+    $('tpEntry').textContent = activeSignal.entry.toFixed(4);
+    $('tpSL').textContent = activeSignal.sl.toFixed(4);
+    $('tpTP').textContent = activeSignal.tp.toFixed(4);
+  } else {
+    sBox.textContent = 'NO ACTIVE SIGNAL';
+    sBox.className = 'signal-box none';
+    $('tradeParams').style.display = 'none';
+  }
+
+  render(data.H2, h2Zones, activeSignal);
+}
+
+function calculateEMA(data, period) {
+  if (data.length < period) return data[data.length - 1];
+  const k = 2 / (period + 1);
+  let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < data.length; i++) {
+    ema = data[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function findSwings(candles, lookback) {
+  const highs = [], lows = [];
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - lookback; j <= i + lookback; j++) {
+      if (j === i) continue;
+      if (candles[j].h > candles[i].h) isHigh = false;
+      if (candles[j].l < candles[i].l) isLow = false;
+    }
+    if (isHigh) highs.push({ idx: i, price: candles[i].h });
+    if (isLow) lows.push({ idx: i, price: candles[i].l });
+  }
+  return { highs, lows };
+}
+
+function findOrderBlocks(candles, h4Trend, rangePos, eqLevel) {
+  const zones = [];
+  const swings = findSwings(candles, 3);
+  
+  if (h4Trend === 'BEAR' && rangePos === 'PREMIUM') {
+    for (let i = swings.lows.length - 1; i >= 1; i--) {
+      if (swings.lows[i].price < swings.lows[i-1].price) {
+        const bosIdx = swings.lows[i].idx;
+        let highestIdx = bosIdx;
+        for (let j = bosIdx; j > Math.max(0, bosIdx - 30); j--) {
+          if (candles[j].h > candles[highestIdx].h) highestIdx = j;
+        }
+        let obIdx = highestIdx;
+        for (let j = highestIdx; j > Math.max(0, highestIdx - 10); j--) {
+          if (candles[j].c < candles[j].o) { obIdx = j; break; }
+        }
+        const ob = candles[obIdx];
+        if (ob.c > ob.o) { 
+          const zone = {
+            type: 'supply',
+            top: ob.h,
+            bottom: Math.min(ob.o, ob.c),
+            startIdx: obIdx,
+            mitigated: false
+          };
+          if (zone.top > eqLevel) {
+            let mitigated = false;
+            for (let k = obIdx + 1; k < candles.length; k++) {
+              if (candles[k].c > zone.top) { mitigated = true; break; }
+            }
+            if (!mitigated) zones.push(zone);
+            if (zones.length >= 3) break;
+          }
+        }
+      }
+    }
+  } else if (h4Trend === 'BULL' && rangePos === 'DISCOUNT') {
+    for (let i = swings.highs.length - 1; i >= 1; i--) {
+      if (swings.highs[i].price > swings.highs[i-1].price) {
+        const bosIdx = swings.highs[i].idx;
+        let lowestIdx = bosIdx;
+        for (let j = bosIdx; j > Math.max(0, bosIdx - 30); j--) {
+          if (candles[j].l < candles[lowestIdx].l) lowestIdx = j;
+        }
+        let obIdx = lowestIdx;
+        for (let j = lowestIdx; j > Math.max(0, lowestIdx - 10); j--) {
+          if (candles[j].c > candles[j].o) { obIdx = j; break; }
+        }
+        const ob = candles[obIdx];
+        if (ob.c < ob.o) { 
+          const zone = {
+            type: 'demand',
+            top: Math.max(ob.o, ob.c), 
+            bottom: ob.l,
+            startIdx: obIdx,
+            mitigated: false
+          };
+          if (zone.bottom < eqLevel) {
+            let mitigated = false;
+            for (let k = obIdx + 1; k < candles.length; k++) {
+              if (candles[k].c < zone.bottom) { mitigated = true; break; }
+            }
+            if (!mitigated) zones.push(zone);
+            if (zones.length >= 3) break;
+          }
+        }
+      }
+    }
+  }
+  return zones;
+}
+
+function checkM30Confirmation(candles, type, zoneTop, zoneBottom) {
+  if (candles.length < 10) return false;
+  const swings = findSwings(candles, 3);
+  
+  if (type === 'demand') {
+    if (swings.highs.length >= 2 && swings.lows.length >= 2) {
+      const lastHigh = swings.highs[swings.highs.length - 1].price;
+      const prevHigh = swings.highs[swings.highs.length - 2].price;
+      const lastLow = swings.lows[swings.lows.length - 1].price;
+      const prevLow = swings.lows[swings.lows.length - 2].price;
+      if (lastHigh > prevHigh && lastLow > prevLow) return true;
+    }
+  } else if (type === 'supply') {
+    if (swings.highs.length >= 2 && swings.lows.length >= 2) {
+      const lastHigh = swings.highs[swings.highs.length - 1].price;
+      const prevHigh = swings.highs[swings.highs.length - 2].price;
+      const lastLow = swings.lows[swings.lows.length - 1].price;
+      const prevLow = swings.lows[swings.lows.length - 2].price;
+      if (lastHigh < prevHigh && lastLow < prevLow) return true;
+    }
+  }
+  return false;
+}
+
+// ================= ALERTS & LOGGING =================
+function triggerAlert(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = type === 'demand' ? 880 : 440;
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch(e) {}
+
+  if (Notification.permission === 'granted') {
+    new Notification(`SMC Signal: ${type.toUpperCase()}`, {
+      body: `Price entered a valid ${type} zone. Check the dashboard.`,
+      icon: 'https://deriv.com/favicon.ico'
+    });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission();
+  }
+}
+
+function logSignal(message, type) {
+  const logBox = $('signalLog');
+  const div = document.createElement('div');
+  div.className = type;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  logBox.prepend(div);
+  if (logBox.children.length > 20) logBox.removeChild(logBox.lastChild);
+}
+
+// ================= RENDERING =================
+function render(candles, zones, signal) {
+  const canvas = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (w === 0 || h === 0) return;
+
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  if (candles.length < 5) return;
+
+  const visible = Math.min(100, candles.length);
+  const start = candles.length - visible;
+  const view = candles.slice(start);
+
+  let min = Infinity, max = -Infinity;
+  for (const c of view) {
+    if (c.l < min) min = c.l;
+    if (c.h > max) max = c.h;
+  }
+  
+  for (const z of zones) {
+    if (z.startIdx >= start - 5) {
+      if (z.top > max) max = z.top;
+      if (z.bottom < min) min = z.bottom;
+    }
+  }
+  if (signal) {
+    if (signal.tp > max) max = signal.tp;
+    if (signal.sl < min) min = signal.sl;
+  }
+
+  const pad = (max - min) * 0.1 || 1;
+  min -= pad; max += pad;
+
+  const priceToY = p => h - ((p - min) / (max - min)) * h;
+  const xFor = i => ((i - start) / (view.length - 1 || 1)) * w;
+
+  for (const z of zones) {
+    if (z.startIdx < start - 5) continue;
+    const x1 = Math.max(0, xFor(z.startIdx));
+    const x2 = w;
+    const y1 = priceToY(z.top);
+    const y2 = priceToY(z.bottom);
+    const isDemand = z.type === 'demand';
+    ctx.fillStyle = isDemand ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.strokeStyle = isDemand ? 'rgba(38,166,154,0.8)' : 'rgba(239,83,80,0.8)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1 - 1, y2 - y1 - 1);
+
+    ctx.fillStyle = isDemand ? '#26a69a' : '#ef5350';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText(isDemand ? 'DEMAND' : 'SUPPLY', x1 + 4, y1 + 12);
+  }
+
+  if (signal) {
+    const drawLine = (price, color, label) => {
+      const y = priceToY(price);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(label + ': ' + price.toFixed(4), w - 80, y - 4);
+    };
+    drawLine(signal.entry, '#58a6ff', 'Entry');
+    drawLine(signal.sl, '#f85149', 'SL');
+    drawLine(signal.tp, '#3fb950', 'TP');
+  }
+
+  const cw = Math.max(1, w / view.length - 1.5);
+  for (let i = 0; i < view.length; i++) {
+    const c = view[i];
+    const x = xFor(start + i);
+    const bull = c.c >= c.o;
+    const color = bull ? '#26a69a' : '#ef5350';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, priceToY(c.h));
+    ctx.lineTo(x, priceToY(c.l));
+    ctx.stroke();
+    const yo = priceToY(c.o), yc = priceToY(c.c);
+    const yTop = Math.min(yo, yc);
+    const yBot = Math.max(yo, yc);
+    ctx.fillRect(x - cw / 2, yTop, cw, Math.max(1, yBot - yTop));
+  }
+
+  if (signal) {
+    const lastCandle = view[view.length - 1];
+    const x = xFor(start + view.length - 1);
+    const y = priceToY(signal.type === 'demand' ? lastCandle.l : lastCandle.h);
+    ctx.fillStyle = signal.type === 'demand' ? '#3fb950' : '#f85149';
+    ctx.beginPath();
+    if (signal.type === 'demand') {
+      ctx.moveTo(x, y + 20);
+      ctx.lineTo(x - 8, y + 10);
+      ctx.lineTo(x + 8, y + 10);
+    } else {
+      ctx.moveTo(x, y - 20);
+      ctx.lineTo(x - 8, y - 10);
+      ctx.lineTo(x + 8, y - 10);
+    }
+    ctx.fill();
+  }
+}
+
+// ================= CONTROLS =================
+$('symbol').addEventListener('change', e => {
+  currentSymbol = e.target.value;
+  data = { D1: [], H4: [], H2: [], M30: [] };
+  activeSignal = null;
+  updateDebug();
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ forget_all: 'candles' }));
+    ws.send(JSON.stringify({ forget_all: 'ticks' }));
+    fetchAllTimeframes();
+  }
+});
+
+$('appId').addEventListener('change', e => {
+  appId = e.target.value.trim() || '1089';
+  connect();
+});
+
+$('refresh').addEventListener('click', () => {
+  data = { D1: [], H4: [], H2: [], M30: [] };
+  activeSignal = null;
+  updateDebug();
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ forget_all: 'candles' }));
+    ws.send(JSON.stringify({ forget_all: 'ticks' }));
+    fetchAllTimeframes();
+  }
+});
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (data.H2.length) {
+      requestAnimationFrame(() => analyze());
+    }
+  }, 200);
+});
+
+// ================= BOOT =================
+connect();
+</script>
+</body>
+</html>
